@@ -659,7 +659,7 @@ with m4:
 # ----------------- 📋 運動分析詳細計算依據與公式說明卡片 -----------------
 motion_basis_html = f"""
 <div style="background-color: #161616; padding: 16px 20px; border-radius: 8px; border: 1px solid #2c2c2c; margin-top: 15px; margin-bottom: 25px;">
-    <div style="color: #c7c7c7; font-size: 0.9rem; font-weight: 400; margin-bottom: 8px;">📋 運動分析詳細計算依據與工程公式說明 (Kinematics Calculation Basis)：</div>
+    <div style="color: #c7c7c7; font-size: 0.9rem; font-weight: 400; margin-bottom: 8px;">💡 運動分析詳細計算依據與工程公式說明 (Kinematics Calculation Basis)：</div>
     <ul style="color: #9e9e9e; font-size: 0.82rem; font-weight: 300; line-height: 1.6; margin: 0; padding-left: 18px;">
         <li><b>減速比 rᵢ</b>：公式 rᵢ = N₂ / N₁ ➔ 計算代入：{n2} / {n1} = <b>{gear_ratio:.3f}</b>。</li>
         <li><b>輸出輪轉速 (n₂)</b>：公式 n₂ = n₁ / rᵢ ➔ 計算代入：{rpm_in:.1f} / {gear_ratio:.3f} = <b>{rpm_out:.2f} rpm</b>。</li>
@@ -724,7 +724,7 @@ with ba4:
 # ----------------- 📋 動力詳細計算依據與標準來源區塊 -----------------
 calc_basis_html = f"""
 <div style="background-color: #161616; padding: 16px 20px; border-radius: 8px; border: 1px solid #2c2c2c; margin-top: 15px; margin-bottom: 25px;">
-    <div style="color: #c7c7c7; font-size: 0.9rem; font-weight: 400; margin-bottom: 8px;">📋 詳細計算依據、工程公式來源與判定標準 (Calculation Basis)：</div>
+    <div style="color: #c7c7c7; font-size: 0.9rem; font-weight: 400; margin-bottom: 8px;">💡 詳細計算依據、工程公式來源與判定標準 (Calculation Basis)：</div>
     <ul style="color: #9e9e9e; font-size: 0.82rem; font-weight: 300; line-height: 1.6; margin: 0; padding-left: 18px;">
         <li><b>標準與公式來源</b>：齒輪彎曲強度與齒形係數採用 <b>Lewis 方程式</b> 與 <b>AGMA 標準規範</b>；材料性質擬合依據機械工程設計手冊（Shigley's）；動態負荷採用 <b>Buckingham 方程式</b>。</li>
         <li><b>切線速度 V (m/s)</b>：公式 V = (π · d₁ · n₁) / 60000 ➔ 計算代入：(π · {d1:.2f} · {rpm_in:.1f}) / 60000 = <b>{v_vel:.2f} m/s</b>。</li>
