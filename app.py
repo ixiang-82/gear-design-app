@@ -23,6 +23,7 @@ default_values = {
     "center_distance": 200.0,
     "gear_ratio": 1.5,
     "rpm_in": 1200.0,
+    "output_torque_kgm": 30.0,
     "b_width": 30.0,
     "power_kw": 25.0,
     "spring_const_mode": "標準值 (Standard)",
@@ -312,6 +313,13 @@ st.sidebar.subheader("二、 動力分析輸入條件")
 rpm_in = st.sidebar.number_input(
     "轉速 (rpm)", value=st.session_state.rpm_in, step=50.0, key="rpm_in"
 )
+output_torque_kgm = st.sidebar.number_input(
+    "輸出扭矩 To (kg-m)",
+    value=st.session_state.output_torque_kgm,
+    step=1.0,
+    format="%.2f",
+    key="output_torque_kgm",
+)
 b_width = st.sidebar.number_input(
     "齒面寬 (mm)",
     value=st.session_state.b_width,
@@ -319,8 +327,14 @@ b_width = st.sidebar.number_input(
     format="%.3f",
     key="b_width",
 )
-power_kw = st.sidebar.number_input(
-    "傳遞動力 (kW)", value=st.session_state.power_kw, step=1.0, key="power_kw"
+
+# 由輸出扭矩與輸出轉速連動計算傳遞動力 (kW)，亦可手動參考
+rpm_out_calc = rpm_in / gear_ratio if gear_ratio > 0 else 0
+# P(kW) = T(kg-m) * n_out(rpm) / 973.8
+power_kw = (
+    (output_torque_kgm * rpm_out_calc) / 973.8
+    if (output_torque_kgm > 0 and rpm_out_calc > 0)
+    else st.session_state.power_kw
 )
 
 spring_const_mode = st.sidebar.selectbox(
@@ -447,10 +461,15 @@ da2 = d2 + 2 * addendum
 df1 = d1 - 2 * dedendum
 df2 = d2 - 2 * dedendum
 
-# 基圓直徑
+# 基圓半徑與基圓直徑
 psi_rad = math.radians(pressure_angle)
 rb1 = r1 * math.cos(psi_rad)
 rb2 = r2 * math.cos(psi_rad)
+db1 = 2 * rb1
+db2 = 2 * rb2
+
+# 齒厚 (標準全齒制/短齒制節圓齒厚 t = pi * M / 2)
+tooth_thickness = (math.pi * module) / 2.0
 
 # 運動分析
 rpm_out = rpm_in / gear_ratio if gear_ratio > 0 else 0
@@ -460,7 +479,11 @@ v_vel = (math.pi * d1 * rpm_in) / 60000  # 切線速度 (m/s)
 ft_force = (power_kw * 1000) / v_vel if v_vel > 0 else 0  # 切線力 Ft (N)
 fr_force = ft_force * math.tan(psi_rad)  # 徑向力 Fr (N)
 
-torque_kgcm = (9550 * power_kw / rpm_in) * 10.1972 if rpm_in > 0 else 0  # 驅動扭矩 (kg-cm)
+torque_kgcm = (
+    (output_torque_kgm * 100.0) / gear_ratio
+    if (output_torque_kgm > 0 and gear_ratio > 0)
+    else ((9550 * power_kw / rpm_in) * 10.1972 if rpm_in > 0 else 0)
+)  # 驅動扭矩 (kg-cm)
 r1_cm = r1 / 10  # 小齒輪半徑 (cm)
 fp_kg = torque_kgcm / r1_cm if r1_cm > 0 else 0  # 傳遞力 Fp (kg)
 required_power_kw = power_kw / 0.95  # 所需動力 (kW)
@@ -496,15 +519,15 @@ fb_load = allowed_sigma * b_width * module * lewis_y
 # 幾何限制與研判計算
 limit_R2 = math.sqrt(rb2**2 + (center_distance**2) * (math.sin(psi_rad) ** 2))
 pass_R2 = (da2 / 2) <= limit_R2
-status_r2_str = "OK" if pass_R2 else "FAIL"
+status_r2_str = "合理" if pass_R2 else "不合理"
 
 limit_r1 = math.sqrt(rb1**2 + (center_distance**2) * (math.sin(psi_rad) ** 2))
 pass_r1 = (da1 / 2) <= limit_r1
-status_r1_str = "OK" if pass_r1 else "FAIL"
+status_r1_str = "合理" if pass_r1 else "不合理"
 
 min_teeth_limit = 32 if pressure_angle <= 14.5 else 18
 min_teeth_ok = n1 >= min_teeth_limit
-min_teeth_str = "OK" if min_teeth_ok else "FAIL"
+min_teeth_str = "合理" if min_teeth_ok else "不合理"
 
 ra1, ra2 = da1 / 2, da2 / 2
 term1 = math.sqrt(max(0, ra1**2 - rb1**2))
@@ -515,8 +538,11 @@ contact_ratio = (
     if (math.pi * module * math.cos(psi_rad)) > 0
     else 0
 )
+cr_reasonable = 1.2 <= contact_ratio <= 2.0
 cr_status = (
-    "適合" if (1.2 <= contact_ratio <= 2.0) else ("過大" if contact_ratio > 2.0 else "過小")
+    "合理（適合）"
+    if cr_reasonable
+    else ("不合理（過大）" if contact_ratio > 2.0 else "不合理（過小）")
 )
 
 
@@ -546,7 +572,7 @@ def render_card(label, val, unit=""):
 # ==================== 3. 畫面呈現 ====================
 
 # Ⅰ. 齒輪尺寸輸出
-st.subheader("⚙️ Ⅰ. 齒輪尺寸輸出")
+st.subheader("🔧 Ⅰ. 齒輪尺寸輸出")
 c1, c2, c3, c4 = st.columns(4)
 with c1:
   render_card("小齒輪齒數 N1", f"{n1}", "齒")
@@ -573,53 +599,235 @@ with c9:
 with c10:
   render_card("大齒根圓直徑 Df2", f"{df2:.2f}", "mm")
 with c11:
-  render_card("中心距 C", f"{center_distance:.2f}", "mm")
+  render_card("小齒基圓直徑 Db1", f"{db1:.2f}", "mm")
 with c12:
+  render_card("大齒基圓直徑 Db2", f"{db2:.2f}", "mm")
+
+c13, c14, c15, c16 = st.columns(4)
+with c13:
+  render_card("中心距 C", f"{center_distance:.2f}", "mm")
+with c14:
+  render_card("齒厚 t", f"{tooth_thickness:.2f}", "mm")
+with c15:
   render_card("齒面寬 b", f"{b_width:.3f}", "mm")
+with c16:
+  render_card("減速比 ri", f"{gear_ratio:.3f}", "")
+
+# ----------------- 幾何尺寸定義圖 (放大聚焦輪齒、圖例與軸標完全分離) -----------------
+st.markdown("##### 📐 齒輪幾何尺寸定義示意圖")
+fig_geo = go.Figure()
+
+tooth_pitch_ang = (2 * math.pi) / max(1, n1)
+half_t_ang = (tooth_thickness / r1) / 2.0 if r1 > 0 else 0.04
+half_b_ang = half_t_ang * 1.22
+
+# 取中心齒及左右各 2 顆齒，並只畫齒根到齒冠的齒廓帶狀區（不封閉到圓心，避免視角被拉遠）
+ang_start = -2.4 * tooth_pitch_ang
+ang_end = 2.4 * tooth_pitch_ang
+
+upper_x, upper_y = [], []
+
+for idx in range(-2, 3):
+  c_ang = idx * tooth_pitch_ang
+  p_root_l = (df1 / 2, c_ang - half_b_ang)
+  p_tip_l = (da1 / 2, c_ang - half_t_ang * 0.78)
+  p_tip_r = (da1 / 2, c_ang + half_t_ang * 0.78)
+  p_root_r = (df1 / 2, c_ang + half_b_ang)
+
+  for rad, ang in [p_root_l, p_tip_l, p_tip_r, p_root_r]:
+    upper_x.append(rad * math.cos(ang))
+    upper_y.append(rad * math.sin(ang))
+
+# 底邊沿齒根圓回繞，形成局部齒帶輪廓
+back_angles = np.linspace(2.4 * tooth_pitch_ang, -2.4 * tooth_pitch_ang, 60)
+poly_x = upper_x + [(df1 / 2) * math.cos(a) for a in back_angles]
+poly_y = upper_y + [(df1 / 2) * math.sin(a) for a in back_angles]
+
+fig_geo.add_trace(
+    go.Scatter(
+        x=poly_x,
+        y=poly_y,
+        mode="lines",
+        name="齒輪輪廓 (Gear Tooth Profile)",
+        line=dict(color="#4ea8de", width=2.5),
+        fill="toself",
+        fillcolor="rgba(78, 168, 222, 0.16)",
+        hoverinfo="skip",
+    )
+)
+
+arc_t = np.linspace(ang_start, ang_end, 120)
+circle_specs = [
+    ("齒冠圓 Da1", da1 / 2, "#ff6b6b", "solid"),
+    ("節圓 D1", d1 / 2, "#2ecc71", "dash"),
+    ("基圓 Db1", db1 / 2, "#f9ca24", "dot"),
+    ("齒根圓 Df1", df1 / 2, "#c56cf0", "dashdot"),
+]
+for label_c, rad_c, col_c, dash_c in circle_specs:
+  fig_geo.add_trace(
+      go.Scatter(
+          x=rad_c * np.cos(arc_t),
+          y=rad_c * np.sin(arc_t),
+          mode="lines",
+          name=f"{label_c} (Ø{2*rad_c:.1f} mm)",
+          line=dict(color=col_c, width=2.0, dash=dash_c),
+          hovertemplate=f"<b>{label_c}</b>: 直徑 Ø{2*rad_c:.2f} mm<extra></extra>",
+      )
+  )
+
+# 標註齒冠高 a 與齒根高 hf（沿 y=0 徑向）
+x_root = df1 / 2
+x_pitch = r1
+x_tip = da1 / 2
+
+fig_geo.add_trace(
+    go.Scatter(
+        x=[x_root, x_pitch],
+        y=[0, 0],
+        mode="lines+markers",
+        name=f"齒根高 hf = {dedendum:.2f} mm",
+        line=dict(color="#c56cf0", width=3.2),
+        marker=dict(size=7, color="#c56cf0"),
+    )
+)
+fig_geo.add_trace(
+    go.Scatter(
+        x=[x_pitch, x_tip],
+        y=[0, 0],
+        mode="lines+markers",
+        name=f"齒冠高 a = {addendum:.2f} mm",
+        line=dict(color="#ff9f43", width=3.2),
+        marker=dict(size=7, color="#ff9f43"),
+    )
+)
+
+fig_geo.add_annotation(
+    x=(x_pitch + x_tip) / 2,
+    y=0,
+    text=f"齒頂高 a = {addendum:.2f} mm",
+    showarrow=True,
+    arrowhead=2,
+    ax=42,
+    ay=-38,
+    font=dict(color="#ff9f43", size=11),
+    bgcolor="rgba(20,20,20,0.92)",
+    bordercolor="#ff9f43",
+)
+fig_geo.add_annotation(
+    x=(x_root + x_pitch) / 2,
+    y=0,
+    text=f"齒根高 hf = {dedendum:.2f} mm",
+    showarrow=True,
+    arrowhead=2,
+    ax=-48,
+    ay=40,
+    font=dict(color="#c56cf0", size=11),
+    bgcolor="rgba(20,20,20,0.92)",
+    bordercolor="#c56cf0",
+)
+
+# 尺寸定義摘要固定在圖表左上角空白處，完全不擋輪齒與標註
+fig_geo.add_annotation(
+    xref="paper",
+    yref="paper",
+    x=0.02,
+    y=0.96,
+    xanchor="left",
+    yanchor="top",
+    text=(
+        f"<b>尺寸定義摘要（N1={n1}, M={module:.1f}）</b><br>"
+        f"齒冠圓 Da1 = {da1:.2f} mm｜節圓 D1 = {d1:.2f} mm<br>"
+        f"基圓 Db1 = {db1:.2f} mm｜齒根圓 Df1 = {df1:.2f} mm<br>"
+        f"齒厚 t = {tooth_thickness:.2f} mm"
+    ),
+    showarrow=False,
+    align="left",
+    font=dict(color="#ffffff", size=11),
+    bgcolor="rgba(25,25,25,0.92)",
+    bordercolor="#2ecc71",
+    borderwidth=1,
+)
+
+focus_x = r1
+focus_y = 0.0
+view_half = max(addendum + dedendum + 14.0, tooth_thickness * 3.4)
+
+fig_geo.update_layout(
+    title=dict(
+        text=(
+            "<b>齒輪幾何尺寸定義圖</b><br><span"
+            " style='font-size:12px; color:#cccccc;'>標示齒頂高 a、齒根高"
+            " hf、齒厚 t 與齒冠圓 Da、節圓 D、基圓 Db、齒根圓 Df</span>"
+        ),
+        font=dict(size=14, color="#58a6ff"),
+    ),
+    xaxis_title="X 座標 (mm)",
+    yaxis_title="Y 座標 (mm)",
+    template="plotly_dark",
+    height=490,
+    margin=dict(l=50, r=25, t=70, b=105),
+    xaxis=dict(
+        range=[focus_x - view_half * 1.35, focus_x + view_half * 0.75],
+        scaleanchor="y",
+        scaleratio=1,
+        showgrid=True,
+        gridcolor="#333333",
+        title_standoff=8,
+    ),
+    yaxis=dict(
+        range=[-view_half * 0.65, view_half * 0.65],
+        showgrid=True,
+        gridcolor="#333333",
+    ),
+    legend=dict(
+        orientation="h",
+        yanchor="top",
+        y=-0.22,
+        xanchor="center",
+        x=0.5,
+        font=dict(size=11),
+    ),
+)
+st.plotly_chart(fig_geo, use_container_width=True)
 
 # (2) 幾何限制條件與研判
 col_chk1, col_chk2 = st.columns(2)
 with col_chk1:
-  st.subheader("🔸 通過研判")
+  st.subheader("🔸 通過研判（干涉檢核）")
   r2_color = "#28a745" if pass_R2 else "#dc3545"
   st.markdown(
-      f"**大齒冠圓半徑 $R$** $\\le \\sqrt{{R_b^2 + C^2\\sin^2\\psi}}$ ="
-      f" <span style='font-size: 1.25rem; font-weight: bold; color:"
-      f" #58a6ff;'>{limit_R2:.2f}</span> ➔ <span style='font-size: 1.25rem;"
-      f" font-weight: bold; color: {r2_color};'>{status_r2_str}</span>",
+      f"**大齒冠圓半徑計算值** $R_a2 = \\mathbf{{{ra2:.2f}\\text{{ mm}}}}$"
+      f"；不等式條件 $\\le \\sqrt{{R_b^2 + C^2\\sin^2\\psi}} = \\mathbf{{{limit_R2:.2f}\\text{{ mm}}}}$"
+      f" ➔ <span style='font-size: 1.2rem; font-weight: bold; color:"
+      f" {r2_color};'>{status_r2_str}</span>",
       unsafe_allow_html=True,
   )
 
   r1_color = "#28a745" if pass_r1 else "#dc3545"
   st.markdown(
-      f"**小齒冠圓半徑 $r$** $\\le \\sqrt{{r_b^2 + C^2\\sin^2\\psi}}$ ="
-      f" <span style='font-size: 1.25rem; font-weight: bold; color:"
-      f" #58a6ff;'>{limit_r1:.2f}</span> ➔ <span style='font-size: 1.25rem;"
-      f" font-weight: bold; color: {r1_color};'>{status_r1_str}</span>",
+      f"**小齒冠圓半徑計算值** $r_a1 = \\mathbf{{{ra1:.2f}\\text{{ mm}}}}$"
+      f"；不等式條件 $\\le \\sqrt{{r_b^2 + C^2\\sin^2\\psi}} = \\mathbf{{{limit_r1:.2f}\\text{{ mm}}}}$"
+      f" ➔ <span style='font-size: 1.2rem; font-weight: bold; color:"
+      f" {r1_color};'>{status_r1_str}</span>",
       unsafe_allow_html=True,
   )
 
 with col_chk2:
-  st.subheader("🔸 干涉")
+  st.subheader("🔸 最小齒數與嚙合齒數研判")
   mt_color = "#28a745" if min_teeth_ok else "#dc3545"
   st.markdown(
-      f"**最小齒數限制** (標準 $\\ge$ {min_teeth_limit})： "
-      f"<span style='font-size: 1.25rem; font-weight: bold; color: #58a6ff;"
-      f" background-color: #262730; padding: 2px 6px; border-radius:"
-      f" 4px;'>N1 = {n1}</span> ➔ <span style='font-size: 1.25rem; font-weight:"
-      f" bold; color: {mt_color};'>{min_teeth_str}</span>",
+      f"**最小齒數計算值** $N_1 = \\mathbf{{{n1}}}$；不等式條件"
+      f" $N_1 \\ge \\mathbf{{{min_teeth_limit}}}$"
+      f" ➔ <span style='font-size: 1.2rem; font-weight: bold; color:"
+      f" {mt_color};'>{min_teeth_str}</span>",
       unsafe_allow_html=True,
   )
 
-  cr_color = (
-      "#28a745"
-      if cr_status == "適合"
-      else ("#ffc107" if cr_status == "過大" else "#dc3545")
-  )
+  cr_color = "#28a745" if cr_reasonable else "#dc3545"
   st.markdown(
-      f"**接觸齒對數**： <span style='font-size: 1.25rem; font-weight: bold;"
-      f" color: #58a6ff;'>{contact_ratio:.2f}</span> ➔ <span"
-      f" style='font-size: 1.25rem; font-weight: bold; color:"
+      f"**嚙合齒數（接觸齒對數）計算值** $= \\mathbf{{{contact_ratio:.2f}}}$；"
+      f"不等式條件 $\\mathbf{{1.2 \\le m_c \\le 2.0}}$"
+      f" ➔ <span style='font-size: 1.2rem; font-weight: bold; color:"
       f" {cr_color};'>{cr_status}</span>",
       unsafe_allow_html=True,
   )
@@ -633,9 +841,9 @@ st.markdown(
 <div style="background-color: #161616; padding: 14px 18px; border-radius: 8px; border: 1px solid #2c2c2c; margin-top: 8px; margin-bottom: 20px;">
     <div style="color: #c7c7c7; font-size: 0.9rem; font-weight: 400; margin-bottom: 8px;">💡 判定標準與參數規範說明：</div>
     <ul style="color: #9e9e9e; font-size: 0.82rem; font-weight: 300; line-height: 1.6; margin: 0; padding-left: 18px;">
-        <li><b>大/小齒冠圓半徑</b>：實際半徑小於等於安全極限時顯示 <span style='color: #28a745;'><b>OK</b></span>；若大於則顯示 <span style='color: #dc3545;'><b>FAIL</b></span>（代表冠圓過大，運轉時會產生干涉）。</li>
-        <li><b>最小齒數限制</b>：壓力角 14.5度時標準需大於等於 32 齒；壓力角 20度時標準需大於等於 18 齒。主動輪達標顯示 <span style='color: #28a745;'><b>OK</b></span>，不足則顯示 <span style='color: #dc3545;'><b>FAIL</b></span>（會發生齒根根切）。</li>
-        <li><b>接觸齒對數</b>：理想適合範圍為 <b>1.2 至 2.0 之間</b>。大於 2.0 顯示 <span style='color: #ffc107;'><b>過大</b></span>（平穩但滑動磨耗增加），小於 1.2 顯示 <span style='color: #dc3545;'><b>過小</b></span>（會產生衝擊與噪音）。</li>
+        <li><b>大/小齒冠圓半徑干涉條件</b>：實際冠圓半徑需小於等於極限值（≦ √(Rb² + C²sin²ψ)），符合為 <span style='color: #28a745;'><b>合理</b></span>，超過為 <span style='color: #dc3545;'><b>不合理</b></span>。</li>
+        <li><b>最小齒數限制</b>：壓力角 14.5° 時標準需 N1 ≧ 32 齒；壓力角 20° 時標準需 N1 ≧ 18 齒。符合為 <span style='color: #28a745;'><b>合理</b></span>，不足為 <span style='color: #dc3545;'><b>不合理</b></span>。</li>
+        <li><b>嚙合齒數（接觸齒對數）</b>：合理範圍為 <b>1.2 ≦ 接觸齒對數 ≦ 2.0</b>，落於區間內為 <span style='color: #28a745;'><b>合理（適合）</b></span>，否則為 <span style='color: #dc3545;'><b>不合理</b></span>。</li>
     </ul>
 </div>
 """,
@@ -695,7 +903,7 @@ with ta2:
 with ta3:
   render_card("所需動力", f"{required_power_kw:.2f}", "kW")
 with ta4:
-  render_card("傳遞動力", f"{power_kw:.2f}", "kW")
+  render_card("輸出扭矩 To", f"{output_torque_kgm:.2f}", "kg-m")
 
 # 🔹 力學與動態負荷分析
 st.markdown("##### 🔹 力學與動態負荷分析 (Forces & Dynamic Analysis)")
@@ -727,6 +935,7 @@ calc_basis_html = f"""
     <div style="color: #c7c7c7; font-size: 0.9rem; font-weight: 400; margin-bottom: 8px;">💡 詳細計算依據、工程公式來源與判定標準 (Calculation Basis)：</div>
     <ul style="color: #9e9e9e; font-size: 0.82rem; font-weight: 300; line-height: 1.6; margin: 0; padding-left: 18px;">
         <li><b>標準與公式來源</b>：齒輪彎曲強度與齒形係數採用 <b>Lewis 方程式</b> 與 <b>AGMA 標準規範</b>；材料性質擬合依據機械工程設計手冊（Shigley's）；動態負荷採用 <b>Buckingham 方程式</b>。</li>
+        <li><b>輸出扭矩與動力連動</b>：由輸出扭矩 To = {output_torque_kgm:.2f} kg-m 與輸出轉速 n₂ = {rpm_out:.2f} rpm 換算傳遞動力 P ≈ <b>{power_kw:.2f} kW</b>；驅動扭矩 Tᵢ = {torque_kgcm:.2f} kg-cm。</li>
         <li><b>切線速度 V (m/s)</b>：公式 V = (π · d₁ · n₁) / 60000 ➔ 計算代入：(π · {d1:.2f} · {rpm_in:.1f}) / 60000 = <b>{v_vel:.2f} m/s</b>。</li>
         <li><b>切線力 Ft 與徑向力 Fr (N)</b>：Ft = (P · 1000) / V = <b>{ft_force:.2f} N</b>；徑向力 Fr = Ft · tan(ψ) = <b>{fr_force:.2f} N</b>。</li>
         <li><b>容許彎曲應力 σ (MPa)</b> [BHN = {bhn_val}]：經驗擬合公式 σ = 0.0031 · BHN² - 0.9973 · BHN + 216.79 = <b>{allowed_sigma:.2f} MPa</b>。</li>
@@ -789,7 +998,7 @@ with col_fig1:
           ),
           font=dict(size=13, color="#58a6ff"),
       ),
-      xaxis_title="材料布氏硬度 BHN (無因次)",
+      xaxis_title="材料布氏硬度 BHN ",
       yaxis_title="容許彎曲應力 σ (MPa)",
       template="plotly_dark",
       height=400,
@@ -855,7 +1064,7 @@ with col_fig2:
           ),
           font=dict(size=13, color="#2ca02c"),
       ),
-      xaxis_title="材料布氏硬度 BHN (無因次)",
+      xaxis_title="材料布氏硬度 BHN ",
       yaxis_title="Wear 壓力 K 值 (N/mm²)",
       template="plotly_dark",
       height=400,
